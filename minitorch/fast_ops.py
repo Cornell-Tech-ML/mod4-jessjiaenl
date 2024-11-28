@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypeVar, Any
 
 import numpy as np
-from numba import prange
+
 from numba import njit as _njit
+from numba import prange
 
 from .tensor_data import (
-    MAX_DIMS,
     broadcast_index,
     index_to_position,
     shape_broadcast,
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from typing import Callable, Optional
 
     from .tensor import Tensor
-    from .tensor_data import Index, Shape, Storage, Strides
+    from .tensor_data import Shape, Storage, Strides
 
 # TIP: Use `NUMBA_DISABLE_JIT=1 pytest tests/ -m task3_1` to run these tests without JIT.
 
@@ -30,6 +30,7 @@ Fn = TypeVar("Fn")
 
 
 def njit(fn: Fn, **kwargs: Any) -> Fn:
+    """Njits the function with inline set as always"""
     return _njit(inline="always", **kwargs)(fn)  # type: ignore
 
 
@@ -159,6 +160,7 @@ def tensor_map(
         Tensor map function.
 
     """
+    # fn is already njitted
 
     def _map(
         out: Storage,
@@ -168,7 +170,23 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        raise NotImplementedError("Need to include this file from past assignment.")
+        # in_strides == out_strides return array of true/false
+        if np.array_equal(in_strides, out_strides) and np.array_equal(
+            in_shape, out_shape
+        ):
+            for i in prange(len(out)):
+                out[i] = fn(in_storage[i])
+        else:
+            for i in prange(len(out)):
+                out_index = np.zeros_like(out_shape, np.int32)
+                in_index = np.zeros_like(in_shape, np.int32)
+                # out_index = np.zeros(len(in_shape), np.int32)
+                # in_index = np.zeros(len(in_shape), np.int32)
+                to_index(i, out_shape, out_index)
+                broadcast_index(out_index, out_shape, in_shape, in_index)
+                o = index_to_position(out_index, out_strides)
+                j = index_to_position(in_index, in_strides)
+                out[o] = fn(in_storage[j])
 
     return njit(_map, parallel=True)  # type: ignore
 
@@ -207,7 +225,29 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        raise NotImplementedError("Need to include this file from past assignment.")
+        if (
+            np.array_equal(a_strides, out_strides)
+            and np.array_equal(a_shape, out_shape)
+            and np.array_equal(a_strides, b_strides)
+            and np.array_equal(a_shape, b_shape)
+        ):
+            for i in prange(len(out)):
+                out[i] = fn(a_storage[i], b_storage[i])
+        else:
+            for i in prange(len(out)):
+                # out_index = np.zeros(len(out_shape), dtype=np.int32)
+                # a_index = np.zeros(len(a_shape), dtype=np.int32)
+                # b_index = np.zeros(len(b_shape), dtype=np.int32)
+                out_index = np.zeros_like(out_shape, np.int32)
+                a_index = np.zeros_like(a_shape, np.int32)
+                b_index = np.zeros_like(b_shape, np.int32)
+                to_index(i, out_shape, out_index)
+                o = index_to_position(out_index, out_strides)
+                broadcast_index(out_index, out_shape, a_shape, a_index)
+                j = index_to_position(a_index, a_strides)
+                broadcast_index(out_index, out_shape, b_shape, b_index)
+                k = index_to_position(b_index, b_strides)
+                out[o] = fn(a_storage[j], b_storage[k])
 
     return njit(_zip, parallel=True)  # type: ignore
 
@@ -242,7 +282,31 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        raise NotImplementedError("Need to include this file from past assignment.")
+        reduce_size = a_shape[
+            reduce_dim
+        ]  # size of the group that's gonna be reduced to one val
+
+        for i in prange(len(out)):
+            # for each output cell, loop through the corres group that's being reduced to a val stored in that cell
+            # out_index = np.zeros(len(out_shape), dtype=np.int32)
+            # out_index = np.empty(len(out_shape), dtype=np.int32)
+            out_index = np.zeros_like(out_shape, np.int32)
+            to_index(i, out_shape, out_index)
+            o = index_to_position(out_index, out_strides)
+
+            # check below for explanation
+            j = index_to_position(out_index, a_strides)
+            temp = out[o]
+            for s in range(reduce_size):
+                # increment the index at the dim to be reduced to get an imaginary index
+                # cuz in reality out_index[reduce_dim] should not exceed 0
+                # note that increment this index increments j by a_strides[reduce_dim]
+                # so get the first j and then continue with j + s*a_strides[reduce_dim]
+
+                # out_index[reduce_dim] = s
+                # j = index_to_position(out_index, a_strides)
+                temp = fn(temp, float(a_storage[j + s * a_strides[reduce_dim]]))
+            out[o] = temp
 
     return njit(_reduce, parallel=True)  # type: ignore
 
@@ -293,7 +357,36 @@ def _tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    raise NotImplementedError("Need to include this file from past assignment.")
+    """
+    From Wiki:
+    C = new matrix
+    For i from 1 to n:
+        For j from 1 to p:
+            Let sum = 0
+            For k from 1 to m:
+                sum += A[i][k] * B[k][j]
+            Cij = sum
+    Return C
+
+    Our case: A[][][][k] * B[][][k][]
+
+    """
+    for n in prange(out_shape[0]):
+        for i in prange(a_shape[-2]):  # ?
+            for j in prange(b_shape[-1]):  # ?
+                sum = 0
+                for k in prange(a_shape[-1]):  # a_shape[-1] = b_shape[-2]
+                    sum += (
+                        a_storage[
+                            n * a_batch_stride + i * a_strides[-2] + k * a_strides[-1]
+                        ]
+                        * b_storage[
+                            n * b_batch_stride + k * b_strides[-2] + j * b_strides[-1]
+                        ]
+                    )
+
+                o = n * out_strides[0] + i * out_strides[-2] + j * out_strides[-1]
+                out[o] = sum
 
 
 tensor_matrix_multiply = njit(_tensor_matrix_multiply, parallel=True)
