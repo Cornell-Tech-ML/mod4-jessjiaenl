@@ -288,26 +288,41 @@ def _sum_practice(out: Storage, a: Storage, size: int) -> None:
     pos = cuda.threadIdx.x
 
     # Implement for Task 3.3.
-    block_i = cuda.blockIdx.x
-    cache[pos] = 0.0
+    # block_i = cuda.blockIdx.x
+    # cache[pos] = 0.0
+    # if i < size:
+    #     cache[pos] = a[i]
+    # cuda.syncthreads()
+
+    # if i < size:  # check this so that block_i < out_size is implied
+    #     pow = 1
+    #     while pow < BLOCK_DIM:
+    #         if pos % (2 * pow) == 0 and pos + pow < BLOCK_DIM:
+    #             # 1st round: pos 0 += pos 1, pos 2 += pos 3, ...
+    #             # 2nd round: pos 0 += pos 2, pos 4 += pos 6
+    #             # 3rd round: pos 0 += pos 4
+    #             cache[pos] += cache[pos + pow]
+    #         cuda.syncthreads()
+    #         pow *= 2
+
+    #     # final reduce val is stored in first cache block
+    #     if pos == 0:
+    #         out[block_i] = cache[0]
+    
     if i < size:
-        cache[pos] = a[i]
-    cuda.syncthreads()
-
-    if i < size:  # check this so that block_i < out_size is implied
-        pow = 1
-        while pow < BLOCK_DIM:
-            if pos % (2 * pow) == 0 and pos + pow < BLOCK_DIM:
-                # 1st round: pos 0 += pos 1, pos 2 += pos 3, ...
-                # 2nd round: pos 0 += pos 2, pos 4 += pos 6
-                # 3rd round: pos 0 += pos 4
-                cache[pos] += cache[pos + pow]
-            cuda.syncthreads()
-            pow *= 2
-
-        # final reduce val is stored in first cache block
+        val = float(a[i])
+        cache[pos] = val
+        cuda.syncthreads()
+    else:
+        cache[pos] = 0.0
+    
+    if i < size:
+        for j in [1, 2, 4, 8, 16]:
+            if pos % (j * 2) == 0:
+                cache[pos] += cache[pos + j]
+                cuda.syncthreads()
         if pos == 0:
-            out[block_i] = cache[0]
+            out[cuda.blockIdx.x] = cache[0]
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
@@ -369,32 +384,50 @@ def tensor_reduce(
         cache[pos] = reduce_value
         # one cache block for each thread
 
-        if out_pos < out_size:  # for each cell in out i.e. each col in a
-            to_index(
-                out_pos, out_shape, out_index
-            )  # out_storage[out_pos] = out_storage[o] = out[col]
+        # if out_pos < out_size:  # for each cell in out i.e. each col in a
+        #     to_index(
+        #         out_pos, out_shape, out_index
+        #     )  # out_storage[out_pos] = out_storage[o] = out[col]
+        #     o = index_to_position(out_index, out_strides)
+
+        #     # increase the index at the dim to be reduced to get an imaginary index to index into a
+        #     out_index[reduce_dim] = (
+        #         out_index[reduce_dim] * BLOCK_DIM + pos
+        #     )  # now out_index[reduce_dim] = row index
+        #     j = index_to_position(out_index, a_strides)  # a_storage[j] = a[row][col]
+
+        #     # copy the rows of this col into cache
+        #     if out_index[reduce_dim] < a_shape[reduce_dim]:  # row < len(matrix)
+        #         cache[pos] = a_storage[j]
+        #     cuda.syncthreads()
+
+        #     # do reduce over rows of that col
+        #     if out_index[reduce_dim] < a_shape[reduce_dim]:  # row < len(matrix)
+        #         pow = 1
+        #         while pow < BLOCK_DIM:
+        #             if pos % (2 * pow) == 0 and pos + pow < BLOCK_DIM:
+        #                 cache[pos] = fn(cache[pos], cache[pos + pow])
+        #             cuda.syncthreads()
+        #             pow *= 2
+        #     # store reduced value at out[out_pos] = out[block_id] = out[col]
+        #     if pos == 0:
+        #         out[o] = cache[0]
+        
+        if out_pos < out_size:
+            to_index(out_pos, out_shape, out_index)
             o = index_to_position(out_index, out_strides)
-
-            # increase the index at the dim to be reduced to get an imaginary index to index into a
-            out_index[reduce_dim] = (
-                out_index[reduce_dim] * BLOCK_DIM + pos
-            )  # now out_index[reduce_dim] = row index
-            j = index_to_position(out_index, a_strides)  # a_storage[j] = a[row][col]
-
-            # copy the rows of this col into cache
-            if out_index[reduce_dim] < a_shape[reduce_dim]:  # row < len(matrix)
-                cache[pos] = a_storage[j]
-            cuda.syncthreads()
-
-            # do reduce over rows of that col
-            if out_index[reduce_dim] < a_shape[reduce_dim]:  # row < len(matrix)
-                pow = 1
-                while pow < BLOCK_DIM:
-                    if pos % (2 * pow) == 0 and pos + pow < BLOCK_DIM:
-                        cache[pos] = fn(cache[pos], cache[pos + pow])
-                    cuda.syncthreads()
-                    pow *= 2
-            # store reduced value at out[out_pos] = out[block_id] = out[col]
+            out_index[reduce_dim] = out_index[reduce_dim] * BLOCK_DIM + pos
+            if out_index[reduce_dim] < a_shape[reduce_dim]:
+                in_a = index_to_position(out_index, a_strides)
+                cache[pos] = a_storage[in_a]
+                cuda.syncthreads()
+                x = 0
+                while 2**x < BLOCK_DIM:
+                    j = 2**x
+                    if pos % (i * 2) == 0:
+                        cache[pos] = fn(cache[pos], cache[pos + j])
+                        cuda.syncthreads()
+                    x += 1
             if pos == 0:
                 out[o] = cache[0]
 
@@ -436,34 +469,50 @@ def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
 
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
-    local_i = cuda.threadIdx.x
-    local_j = cuda.threadIdx.y
+    # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    # j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+    # local_i = cuda.threadIdx.x
+    # local_j = cuda.threadIdx.y
 
-    acc = 0  # initialize local var to store out[i,j]
-    # we want to loop through the shared dimension k (inner loop in the above comment)
-    # but since we compute a block at a time, we loop through that by stepping an offset k, k+BLOCK_DIM, k+2*BLOCK_DIM and then loop through each block by k + local_i or local_j
-    for k in range(0, size, BLOCK_DIM):
-        # for this k, we have multiple blocks, collectively the shared memories across these blocks hold:
-        # a[i, k:k+BLOCK_DIM] and b[k:k+BLOCK_DIM, j]
-        # note that each block holds a a_shared of shape (BLOCK_DIM, BLOCK_DIM) and a b_shared of shape (BLOCK_DIM, BLOCK_DIM)
-        # just that for all shared memories for this k they cover the values a[i, k:k+BLOCK_DIM] and b[k:k+BLOCK_DIM, j]
-        if i < size and k + local_j < size:
-            a_shared[local_i, local_j] = a[i * size + k + local_j]
-        if j < size and k + local_i < size:
-            b_shared[local_i, local_j] = b[(k + local_i) * size + j]
-        cuda.syncthreads()
+    # acc = 0  # initialize local var to store out[i,j]
+    # # we want to loop through the shared dimension k (inner loop in the above comment)
+    # # but since we compute a block at a time, we loop through that by stepping an offset k, k+BLOCK_DIM, k+2*BLOCK_DIM and then loop through each block by k + local_i or local_j
+    # for k in range(0, size, BLOCK_DIM):
+    #     # for this k, we have multiple blocks, collectively the shared memories across these blocks hold:
+    #     # a[i, k:k+BLOCK_DIM] and b[k:k+BLOCK_DIM, j]
+    #     # note that each block holds a a_shared of shape (BLOCK_DIM, BLOCK_DIM) and a b_shared of shape (BLOCK_DIM, BLOCK_DIM)
+    #     # just that for all shared memories for this k they cover the values a[i, k:k+BLOCK_DIM] and b[k:k+BLOCK_DIM, j]
+    #     if i < size and k + local_j < size:
+    #         a_shared[local_i, local_j] = a[i * size + k + local_j]
+    #     if j < size and k + local_i < size:
+    #         b_shared[local_i, local_j] = b[(k + local_i) * size + j]
+    #     cuda.syncthreads()
 
-        # now we are able to accumulate to out[i, j] by computing a dot product between BLOCK_DIM len vectors
-        # we essentially partitioned a whole row of a and a whole col of b into BLOCK_DIM size sub vectors, dot each subvector, and add to accumulation
-        for local_k in range(BLOCK_DIM):
-            if k + local_k < size:
-                acc += a_shared[local_i, local_k] * b_shared[local_k, local_j]
+    #     # now we are able to accumulate to out[i, j] by computing a dot product between BLOCK_DIM len vectors
+    #     # we essentially partitioned a whole row of a and a whole col of b into BLOCK_DIM size sub vectors, dot each subvector, and add to accumulation
+    #     for local_k in range(BLOCK_DIM):
+    #         if k + local_k < size:
+    #             acc += a_shared[local_i, local_k] * b_shared[local_k, local_j]
 
-    # after we completely go through the whole row of a and whole col of b (i.e. all "k"), we finish the accumulation of out[i,j]
-    if i < size and j < size:
-        out[i * size + j] = acc
+    # # after we completely go through the whole row of a and whole col of b (i.e. all "k"), we finish the accumulation of out[i,j]
+    # if i < size and j < size:
+    #     out[i * size + j] = acc
+
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.y
+
+    if i >= size or j >= size:
+        return
+    
+    a_shared[i, j] = a[size * i + j]
+    b_shared[i, j] = b[size * i + j]
+    cuda.syncthread()
+
+    accum = 0.0
+    for k in range(size):
+        accum += a_shared[i, k] * b_shared[k, j]
+    
+    out[size * i + j] = accum
 
 
 jit_mm_practice = jit(_mm_practice)
@@ -533,32 +582,49 @@ def _tensor_matrix_multiply(
     #    b) Copy into shared memory for b matrix
     #    c) Compute the dot produce for position c[i, j]
 
-    acc = 0  # for computing the dot produce for position c[i, j]
-    for k in range(
-        0, a_shape[-1], BLOCK_DIM
-    ):  # Move across shared dimension by block dim size of steps, and take smaller steps within using pi pj in order to move a block of a/b into shared memeory at a time
-        if (
-            i < a_shape[-2] and k + pj < a_shape[-1]
-        ):  # Copy into shared memory for a matrix
-            a_shared[pi, pj] = a_storage[
-                batch * a_batch_stride + i * a_strides[-2] + (k + pj) * a_strides[-1]
-            ]
-        if (
-            j < b_shape[-1] and k + pi < b_shape[-2]
-        ):  # Copy into shared memory for b matrix
-            b_shared[pi, pj] = b_storage[
-                batch * b_batch_stride + (k + pi) * b_strides[-2] + j * b_strides[-1]
-            ]
+    # acc = 0  # for computing the dot produce for position c[i, j]
+    # for k in range(
+    #     0, a_shape[-1], BLOCK_DIM
+    # ):  # Move across shared dimension by block dim size of steps, and take smaller steps within using pi pj in order to move a block of a/b into shared memeory at a time
+    #     if (
+    #         i < a_shape[-2] and k + pj < a_shape[-1]
+    #     ):  # Copy into shared memory for a matrix
+    #         a_shared[pi, pj] = a_storage[
+    #             batch * a_batch_stride + i * a_strides[-2] + (k + pj) * a_strides[-1]
+    #         ]
+    #     if (
+    #         j < b_shape[-1] and k + pi < b_shape[-2]
+    #     ):  # Copy into shared memory for b matrix
+    #         b_shared[pi, pj] = b_storage[
+    #             batch * b_batch_stride + (k + pi) * b_strides[-2] + j * b_strides[-1]
+    #         ]
+    #     cuda.syncthreads()
+
+    #     # Accumulate to c[i, j] by computing a partial dot product on a subvector of a of len BLOCK_DIM and a subvector of b of len BLOCK_DIM
+    #     for pk in range(BLOCK_DIM):
+    #         if k + pk < a_shape[-1]:  # a_shape[-1] == b_shape[-2]
+    #             acc += a_shared[pi, pk] * b_shared[pk, pj]
+
+    # # Now we've accumulated all partitions of a row in a and a col in b, can store the computed dot produce for position c[i, j] (skipping previous dims with batch * out_strides[0])
+    # if i < a_shape[-2] and j < b_shape[-1]:
+    #     out[batch * out_strides[0] + i * out_strides[-2] + j * out_strides[-1]] = acc
+
+    accum = 0.0
+    for k_start in range(0, a_shape[2], BLOCK_DIM):
+        k = k_start + pj
+        if i < a_shape[1] and k < a_shape[2]:
+            a_shared[pi, pj] = a_storage[a_batch_stride * batch + a_strides[1] * i + a_strides[2] * k]
+        k = k_start + pi
+        if j < b_shape[2] and k < b_shape[1]:
+            b_shared[pi, pj] = b_storage[b_batch_stride * batch + b_strides[1] * k + b_strides[2] * j]
         cuda.syncthreads()
 
-        # Accumulate to c[i, j] by computing a partial dot product on a subvector of a of len BLOCK_DIM and a subvector of b of len BLOCK_DIM
-        for pk in range(BLOCK_DIM):
-            if k + pk < a_shape[-1]:  # a_shape[-1] == b_shape[-2]
-                acc += a_shared[pi, pk] * b_shared[pk, pj]
-
-    # Now we've accumulated all partitions of a row in a and a col in b, can store the computed dot produce for position c[i, j] (skipping previous dims with batch * out_strides[0])
-    if i < a_shape[-2] and j < b_shape[-1]:
-        out[batch * out_strides[0] + i * out_strides[-2] + j * out_strides[-1]] = acc
+        for k in range(BLOCK_DIM):
+            if (k_start + k) < a_shape[2]:
+                accum += a_shared[pi, k] * b_shared[k, pj]
+    
+    if i < out_shape[1] and j < out_shape[2]:
+        out[out_strides[0] * batch + out_strides[1] * i + out_strides[2] * j] = accum
 
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
