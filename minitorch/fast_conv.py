@@ -90,8 +90,23 @@ def _tensor_conv1d(
     s1 = input_strides
     s2 = weight_strides
 
-    # TODO: Implement for Task 4.1.
-    raise NotImplementedError("Need to implement for Task 4.1")
+    for b in prange(batch):
+        for co in prange(out_channels):
+            for i in prange(out_width):
+                # calculate out[b, co, i]
+                for ci in prange(in_channels):
+                    # do one dot product of weight and part of input
+                    wi = 0
+                    if not reverse: # left aligned
+                        for j in prange(min(i, width - 1), min(i+kw, width)): # TODO: or prange(min(i, width - 1), min(i+kw, width))?
+                            # input[b, ci, j] * weight[b, ci, wi]
+                            out[b * out_strides[0] + co * out_strides[1] + i * out_strides[2]] += input[b * s1[0] + ci * s1[1] + j * s1[2]] * weight[co * s2[0] + ci * s2[1] + wi * s2[2]]
+                            wi += 1
+                    else: # right aligned
+                        for j in prange(max(i - kw + 1, 0), min(i+1, width)):
+                            # input[b, ci, j] * weight[b, ci, wi]
+                            out[b * out_strides[0] + co * out_strides[1] + i * out_strides[2]] += input[b * s1[0] + ci * s1[1] + j * s1[2]] * weight[co * s2[0] + ci * s2[1] + wi * s2[2]]
+                            wi += 1
 
 
 tensor_conv1d = njit(_tensor_conv1d, parallel=True)
