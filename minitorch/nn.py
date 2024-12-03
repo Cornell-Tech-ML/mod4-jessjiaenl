@@ -15,6 +15,7 @@ from .tensor_data import index_to_position
 # - maxpool2d: Tiled max pooling 2D
 # - dropout: Dropout positions based on random noise, include an argument to turn off
 
+# 4.3
 
 def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     """Reshape an image tensor for 2D pooling
@@ -47,18 +48,22 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
 
     return out, new_height, new_width
 
-
 def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
-    batch, channel, height, width = input.shape
+    batch, channel, _, _ = input.shape
     input, new_height, new_width = tile(input, kernel)
     out = input.mean(dim=-1)
     return out.view(batch, channel, new_height, new_width)
+
+# 4.4
+
+
 
 def max(input: Tensor, dim: int) -> Tensor:
     return
 
 def softmax(input: Tensor, dim: int) -> Tensor:
-    return
+    expX = input.exp()
+    return expX / expX.sum(dim)
 
 def logsoftmax(input: Tensor, dim: int) -> Tensor:
     return
