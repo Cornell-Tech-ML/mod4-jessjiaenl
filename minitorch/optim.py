@@ -15,6 +15,7 @@ class SGD(Optimizer):
         self.lr = lr
 
     def zero_grad(self) -> None:
+        """Set derivative and gradient of optimizer to None"""
         for p in self.parameters:
             if p.value is None:
                 continue
@@ -26,6 +27,7 @@ class SGD(Optimizer):
                     p.value.grad = None
 
     def step(self) -> None:
+        """A step in gradient descent. Update derivative and gradient according to the learning rate."""
         for p in self.parameters:
             if p.value is None:
                 continue

@@ -1,10 +1,8 @@
 from typing import Tuple
 
-from . import operators
-from .autodiff import Context
-from .fast_ops import FastOps
 from .tensor import Tensor
-from .tensor_functions import Function, rand, tensor
+from numba import prange
+from .tensor_data import index_to_position
 
 
 # List of functions in this file:
@@ -17,6 +15,7 @@ from .tensor_functions import Function, rand, tensor
 # - maxpool2d: Tiled max pooling 2D
 # - dropout: Dropout positions based on random noise, include an argument to turn off
 
+# 4.3
 
 def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     """Reshape an image tensor for 2D pooling
@@ -35,8 +34,42 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     kh, kw = kernel
     assert height % kh == 0
     assert width % kw == 0
-    # TODO: Implement for Task 4.3.
-    raise NotImplementedError("Need to implement for Task 4.3")
+    
+    new_height, new_width = height // kh, width // kw
+
+    # if 1D, do input.view(batch, channel, new_width, kw)
+    # idea: add the "to be reduced" dimension on right for contiguous stride to lay out correctly
+
+    out = input.contiguous()
+    out = out.view(batch, channel, new_height, kh, width)
+    out = out.permute(0, 1, 2, 4, 3)
+    out = out.contiguous()
+    out = out.view(batch, channel, new_height, new_width, kh*kw)
+
+    return out, new_height, new_width
+
+def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    batch, channel, _, _ = input.shape
+    input, new_height, new_width = tile(input, kernel)
+    out = input.mean(dim=-1)
+    return out.view(batch, channel, new_height, new_width)
+
+# 4.4
 
 
-# TODO: Implement for Task 4.3.
+
+def max(input: Tensor, dim: int) -> Tensor:
+    return
+
+def softmax(input: Tensor, dim: int) -> Tensor:
+    expX = input.exp()
+    return expX / expX.sum(dim)
+
+def logsoftmax(input: Tensor, dim: int) -> Tensor:
+    return
+
+def maxpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    return
+
+def dropout(input: Tensor, rate: float, ignore: bool = False) -> Tensor:
+    return
