@@ -49,7 +49,10 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
 
 
 def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
-    return
+    batch, channel, height, width = input.shape
+    input, new_height, new_width = tile(input, kernel)
+    out = input.mean(dim=-1)
+    return out.view(batch, channel, new_height, new_width)
 
 def max(input: Tensor, dim: int) -> Tensor:
     return
