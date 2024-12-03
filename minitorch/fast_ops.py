@@ -399,8 +399,11 @@ def _tensor_matrix_multiply(
                     acc += a_storage[a_inner] * b_storage[b_inner]
                     a_inner += a_strides[2]
                     b_inner += b_strides[1]
-                out_position = i1 * out_strides[0] + i2 * out_strides[1] + i3 * out_strides[2]
+                out_position = (
+                    i1 * out_strides[0] + i2 * out_strides[1] + i3 * out_strides[2]
+                )
                 out[out_position] = acc
+
 
 tensor_matrix_multiply = njit(_tensor_matrix_multiply, parallel=True)
 assert tensor_matrix_multiply is not None
