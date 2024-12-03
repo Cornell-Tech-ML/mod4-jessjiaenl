@@ -1,6 +1,8 @@
 from typing import Tuple
 
 from .tensor import Tensor
+from numba import prange
+from .tensor_data import index_to_position
 
 
 # List of functions in this file:
@@ -31,8 +33,41 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     kh, kw = kernel
     assert height % kh == 0
     assert width % kw == 0
-    # TODO: Implement for Task 4.3.
-    raise NotImplementedError("Need to implement for Task 4.3")
+    
+    new_height, new_width = height // kh, width // kw
+    out = Tensor.zeros(batch, channel, new_height, new_width, kh*kw)
+    for b in prange(batch):
+        for c in prange(channel):
+            for h in prange(new_height):
+                for w in prange(new_width):
+                    for i in prange(kh*kw):
+                        # calculate out[b, c, h, w, i]
+                        o = index_to_position(b, c, h, w, i, out.strides)
+                        # decompose i to row, col in kernel
+                        row = i // kw
+                        col = i % kw
+                        # place kernel onto correct pos in input to see what kenel[row, col] corresponds to
+                        global_row = h * kh + row
+                        global_col = w * kw + col
+                        out[o] = input[b, c, global_row, global_col]
+
+    return out, new_height, new_width
 
 
-# TODO: Implement for Task 4.3.
+def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    return
+
+def max(input: Tensor, dim: int) -> Tensor:
+    return
+
+def softmax(input: Tensor, dim: int) -> Tensor:
+    return
+
+def logsoftmax(input: Tensor, dim: int) -> Tensor:
+    return
+
+def maxpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    return
+
+def dropout(input: Tensor, rate: float, ignore: bool = False) -> Tensor:
+    return
