@@ -35,21 +35,15 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     assert width % kw == 0
     
     new_height, new_width = height // kh, width // kw
-    out = Tensor.zeros(batch, channel, new_height, new_width, kh*kw)
-    for b in prange(batch):
-        for c in prange(channel):
-            for h in prange(new_height):
-                for w in prange(new_width):
-                    for i in prange(kh*kw):
-                        # calculate out[b, c, h, w, i]
-                        o = index_to_position(b, c, h, w, i, out.strides)
-                        # decompose i to row, col in kernel
-                        row = i // kw
-                        col = i % kw
-                        # place kernel onto correct pos in input to see what kenel[row, col] corresponds to
-                        global_row = h * kh + row
-                        global_col = w * kw + col
-                        out[o] = input[b, c, global_row, global_col]
+
+    # if 1D, do input.view(batch, channel, new_width, kw)
+    # idea: add the "to be reduced" dimension on right for contiguous stride to lay out correctly
+
+    out = input.contiguous()
+    out = out.view(batch, channel, new_height, kh, width)
+    out = out.permute(0, 1, 2, 4, 3)
+    out = out.contiguous()
+    out = out.view(batch, channel, new_height, new_width, kh*kw)
 
     return out, new_height, new_width
 
