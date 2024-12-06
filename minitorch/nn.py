@@ -1,8 +1,10 @@
 from typing import Tuple
 
 from .tensor import Tensor
-from numba import prange
-from .tensor_data import index_to_position
+from .autodiff import Context
+from .tensor_functions import Function
+from .fast_ops import FastOps
+from .operators import max
 
 
 # List of functions in this file:
@@ -16,6 +18,7 @@ from .tensor_data import index_to_position
 # - dropout: Dropout positions based on random noise, include an argument to turn off
 
 # 4.3
+
 
 def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     """Reshape an image tensor for 2D pooling
@@ -34,7 +37,7 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     kh, kw = kernel
     assert height % kh == 0
     assert width % kw == 0
-    
+
     new_height, new_width = height // kh, width // kw
 
     # if 1D, do input.view(batch, channel, new_width, kw)
@@ -44,32 +47,63 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
     out = out.view(batch, channel, new_height, kh, width)
     out = out.permute(0, 1, 2, 4, 3)
     out = out.contiguous()
-    out = out.view(batch, channel, new_height, new_width, kh*kw)
+    out = out.view(batch, channel, new_height, new_width, kh * kw)
 
     return out, new_height, new_width
+
 
 def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
     batch, channel, _, _ = input.shape
     input, new_height, new_width = tile(input, kernel)
-    out = input.mean(dim=-1)
+    out = input.mean(-1)
     return out.view(batch, channel, new_height, new_width)
+
 
 # 4.4
 
+max_reduce = FastOps.reduce(max, -1e9)
+
+
+def argmax(input: Tensor, dim: int) -> Tensor:
+    """Compute the argmax as a 1-hot tensor."""
+    return max_reduce(input, dim) == input
+
+
+class Max(Function):
+    @staticmethod
+    def forward(ctx: Context, t1: Tensor, dim: Tensor) -> Tensor:
+        """Reduce max over dimention dim on t1"""
+        ctx.save_for_backward(t1, int(dim.item()))
+        return max_reduce(t1, int(dim.item()))
+
+    @staticmethod
+    def backward(
+        ctx: Context, grad_output: Tensor
+    ) -> Tuple[Tensor, float]:  # same return type as View
+        """Max's backward is argmax, so multiply by grad output, grad for dim is just 0"""
+        (t1, dim) = ctx.saved_values
+        return (grad_output * argmax(t1, dim), 0.0)
 
 
 def max(input: Tensor, dim: int) -> Tensor:
-    return
+    return Max.apply(input, input._ensure_tensor(dim))
+
 
 def softmax(input: Tensor, dim: int) -> Tensor:
     expX = input.exp()
     return expX / expX.sum(dim)
 
+
 def logsoftmax(input: Tensor, dim: int) -> Tensor:
-    return
+    return softmax(input, dim).log()
+
 
 def maxpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
-    return
+    batch, channel, _, _ = input.shape
+    input, new_height, new_width = tile(input, kernel)
+    out = max(input, -1)
+    return out.view(batch, channel, new_height, new_width)
+
 
 def dropout(input: Tensor, rate: float, ignore: bool = False) -> Tensor:
     return
