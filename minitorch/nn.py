@@ -2,7 +2,7 @@ from typing import Tuple
 
 from .tensor import Tensor
 from .autodiff import Context
-from .tensor_functions import Function
+from .tensor_functions import Function, rand
 from .fast_ops import FastOps
 from .operators import max
 
@@ -53,6 +53,7 @@ def tile(input: Tensor, kernel: Tuple[int, int]) -> Tuple[Tensor, int, int]:
 
 
 def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    """Perform average pooling on input with kernel kernel"""
     batch, channel, _, _ = input.shape
     input, new_height, new_width = tile(input, kernel)
     out = input.mean(-1)
@@ -86,19 +87,23 @@ class Max(Function):
 
 
 def max(input: Tensor, dim: int) -> Tensor:
+    """Reduce maximum of input tensor on the dimension dim"""
     return Max.apply(input, input._ensure_tensor(dim))
 
 
 def softmax(input: Tensor, dim: int) -> Tensor:
+    """Take the softmax of input tensor on dimension dim"""
     expX = input.exp()
     return expX / expX.sum(dim)
 
 
 def logsoftmax(input: Tensor, dim: int) -> Tensor:
+    """Take the logsoftmax of input tensor on dimension dim"""
     return softmax(input, dim).log()
 
 
 def maxpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
+    """Perform max pooling on input tensor with kernel"""
     batch, channel, _, _ = input.shape
     input, new_height, new_width = tile(input, kernel)
     out = max(input, -1)
@@ -106,4 +111,10 @@ def maxpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
 
 
 def dropout(input: Tensor, rate: float, ignore: bool = False) -> Tensor:
-    return
+    """Dropout each position in 'input' with probability 'rate'"""
+    if ignore:
+        return input
+    else:
+        probs = rand(input.shape)
+        idx_to_keep = probs > rate
+        return input * idx_to_keep
