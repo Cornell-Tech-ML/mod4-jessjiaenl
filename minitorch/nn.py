@@ -4,7 +4,7 @@ from .tensor import Tensor
 from .autodiff import Context
 from .tensor_functions import Function, rand
 from .fast_ops import FastOps
-from .operators import max
+from .operators import max as op_max
 
 
 # List of functions in this file:
@@ -62,7 +62,7 @@ def avgpool2d(input: Tensor, kernel: Tuple[int, int]) -> Tensor:
 
 # 4.4
 
-max_reduce = FastOps.reduce(max, -1e9)
+max_reduce = FastOps.reduce(op_max, -1e9)
 
 
 def argmax(input: Tensor, dim: int) -> Tensor:
