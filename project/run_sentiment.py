@@ -80,12 +80,11 @@ class CNNSentimentKim(minitorch.Module):
 
         # max over time for each channel
         out = (minitorch.max(conv1, 2) + minitorch.max(conv2, 2) + minitorch.max(conv3, 2)).view(embeddings.shape[0], self.feature_map_size)
-        
+    
         # linear then relu then dropout
         out = self.lin.forward(out).relu()
         out = minitorch.dropout(out, rate=self.dropout, ignore=not self.training)
-
-        return out.sigmoid()
+        return out.sigmoid().view(embeddings.shape[0])
 
 
 # Evaluation helper methods
