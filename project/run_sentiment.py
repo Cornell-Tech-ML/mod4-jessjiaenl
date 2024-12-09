@@ -83,7 +83,7 @@ class CNNSentimentKim(minitorch.Module):
         
         # linear then relu then dropout
         out = self.lin.forward(out).relu()
-        out = minitorch.dropout(out, rate=self.dropout)
+        out = minitorch.dropout(out, rate=self.dropout, ignore=not self.training)
 
         return out.sigmoid()
 
