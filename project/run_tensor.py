@@ -11,6 +11,39 @@ def RParam(*shape):
     r = 2 * (minitorch.rand(shape) - 0.5)
     return minitorch.Parameter(r)
 
+class Network(minitorch.Module):
+    def __init__(self, hidden_layers):
+        super().__init__()
+        self.layer1 = Linear(2, hidden_layers)
+        self.layer2 = Linear(hidden_layers, hidden_layers)
+        self.layer3 = Linear(hidden_layers, 1)
+
+    def forward(self, x):
+        middle = self.layer1.forward(x).relu()
+        end = self.layer2.forward(middle).relu()
+        return self.layer3.forward(end).sigmoid()
+
+
+class Linear(minitorch.Module):
+    def __init__(self, in_size, out_size):
+        super().__init__()
+        self.weights = RParam(in_size, out_size)
+        self.bias = RParam(out_size)
+        self.out_size = out_size
+
+
+    def forward(self, inputs):
+        """weight matrix mult input then add bias, output a tensor"""
+        num_pts, in_size = inputs.shape
+        # first layer weight has shape (in_size, out_size) = (2, hidden_layers)
+        # want to broadcast so that (1, in_size, out_size) and (num_pts, in_size, 1)
+        w = self.weights.value # (1, in_size, out_size)
+        xs = inputs.view(num_pts, in_size, 1)
+        matix_mul = (w*xs).sum(1).view(num_pts, self.out_size)
+        # result is (num_pts, out_size), i.e. one output for each datapoint
+        return matix_mul + self.bias.value # bias shape is (1, out_size)
+
+
 
 def default_log_fn(epoch, total_loss, correct, losses):
     print("Epoch ", epoch, " loss ", total_loss, "correct", correct)
@@ -60,10 +93,9 @@ class TensorTrain:
                 correct = int(((out.detach() > 0.5) == y2).sum()[0])
                 log_fn(epoch, total_loss, correct, losses)
 
-
 if __name__ == "__main__":
     PTS = 50
-    HIDDEN = 2
+    HIDDEN = 3
     RATE = 0.5
     data = minitorch.datasets["Simple"](PTS)
     TensorTrain(HIDDEN).train(data, RATE)
